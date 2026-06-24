@@ -221,11 +221,9 @@
 </div>
 
 <script>
-    // --- 系統編號與日誌 ---
-    const APP_VERSION = "V1.2_20260624";
+    const APP_VERSION = "V1.3_20260624";
     console.log("Bj相機核心啟動。當前版本:", APP_VERSION);
 
-    // --- 綠底白字 Bj 主畫面圖示動態建構 ---
     (function injectAppIcon() {
         const iconCanvas = document.createElement('canvas');
         iconCanvas.width = 180;
@@ -288,7 +286,6 @@
     let initialCameraZoomDistance = -1;
     let initialCameraZoom = 1;
 
-    // rAF 節流閥控制旗標
     let transformTicking = false;
 
     async function initCamera() {
@@ -317,7 +314,7 @@
 
     function getTimeString() {
         const d = new Date();
-        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')} : ${String(d.getMinutes()).padStart(2,'0')}`;
+        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
     async function fetchLocation() {
@@ -333,9 +330,9 @@
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
                 const data = await res.json();
                 if(data.display_name) {
-                    // 高級過濾：徹底剔除村、里、國家、郵遞區號
+                    // 加入「商圈」過濾
                     let parts = data.display_name.split(',').map(p => p.trim());
-                    let filteredParts = parts.filter(p => !/(村|里)$/.test(p) && p !== '臺灣' && !/^\d+$/.test(p));
+                    let filteredParts = parts.filter(p => !/(村|里)$/.test(p) && p !== '臺灣' && !/^\d+$/.test(p) && !p.includes('商圈'));
                     addressInput.value = filteredParts.reverse().join('').replace(/\s/g, '');
                 } else {
                     addressInput.value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
@@ -391,7 +388,6 @@
         activateHandTool();
     };
 
-    // 優化：導入 rAF 與 translate3d 硬體加速，徹底解決 iOS 掉幀卡死問題
     function updateTransform() {
         if (!transformTicking) {
             window.requestAnimationFrame(() => {
@@ -501,8 +497,13 @@
     const container = document.getElementById('camera-container');
 
     container.addEventListener('touchstart', (e) => {
+        // 核心修正：遇到工具列按鈕時放行，不阻擋點擊事件
+        if (e.target.closest('#brush-controls')) {
+            return;
+        }
+
         if (snapBtn.style.display === 'none') {
-            e.preventDefault(); // 完全阻斷 iOS 瀏覽器預設手勢衝突
+            e.preventDefault(); 
         }
 
         if (snapBtn.style.display !== 'none') {
@@ -536,6 +537,11 @@
     }, {passive: false});
 
     container.addEventListener('touchmove', (e) => {
+        // 核心修正：遇到工具列按鈕時放行
+        if (e.target.closest('#brush-controls')) {
+            return;
+        }
+        
         e.preventDefault(); 
         
         if (snapBtn.style.display !== 'none') {
