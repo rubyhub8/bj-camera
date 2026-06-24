@@ -221,7 +221,7 @@
 </div>
 
 <script>
-    const APP_VERSION = "V1.3_20260624";
+    const APP_VERSION = "V1.4_20260624";
     console.log("Bj相機核心啟動。當前版本:", APP_VERSION);
 
     (function injectAppIcon() {
@@ -256,7 +256,6 @@
     const snapBtn = document.getElementById('snap-btn');
     const saveBtn = document.getElementById('save-btn');
     const resetBtn = document.getElementById('reset-btn');
-    const brushControls = document.getElementById('brush-controls');
 
     const handTool = document.getElementById('hand-tool');
     const pencilTool = document.getElementById('pencil-tool');
@@ -285,7 +284,6 @@
     let maxZoom = 1;
     let initialCameraZoomDistance = -1;
     let initialCameraZoom = 1;
-
     let transformTicking = false;
 
     async function initCamera() {
@@ -330,10 +328,18 @@
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
                 const data = await res.json();
                 if(data.display_name) {
-                    // 加入「商圈」過濾
+                    // 核心修正：深度淨化演算法，完全剔除商圈與郵遞區號
                     let parts = data.display_name.split(',').map(p => p.trim());
-                    let filteredParts = parts.filter(p => !/(村|里)$/.test(p) && p !== '臺灣' && !/^\d+$/.test(p) && !p.includes('商圈'));
-                    addressInput.value = filteredParts.reverse().join('').replace(/\s/g, '');
+                    let finalParts = [];
+                    for (let i = parts.length - 1; i >= 0; i--) {
+                        let p = parts[i];
+                        if (p === '臺灣' || p === '台灣') continue;
+                        if (/^\d+$/.test(p)) continue;
+                        if (p.includes('商圈')) continue;
+                        if (/(村|里)$/.test(p)) continue;
+                        finalParts.push(p);
+                    }
+                    addressInput.value = finalParts.join('').replace(/\s/g, '');
                 } else {
                     addressInput.value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
                 }
@@ -349,11 +355,9 @@
 
     function updatePreview() {
         if(snapBtn.style.display === 'none') return; 
-        
         let html = `時間: ${getTimeString()}<br>`;
         if (addressInput.value.trim()) html += `地址: ${addressInput.value.trim()}<br>`;
         if (descInput.value.trim()) html += `說明: ${descInput.value.trim()}`;
-        
         preview.innerHTML = html.replace(/<br>$/, '');
     }
     
@@ -363,7 +367,6 @@
 
     snapBtn.onclick = () => {
         captureTime = getTimeString();
-        
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -374,16 +377,14 @@
 
         video.style.display = 'none';
         wrapper.style.display = 'flex';
-        brushControls.style.display = 'flex';
+        document.getElementById('brush-controls').style.display = 'flex';
         
         snapBtn.style.display = 'none';
         saveBtn.style.display = 'flex';
         resetBtn.style.display = 'flex';
         preview.style.display = 'none';
         
-        scale = 1;
-        pointX = 0;
-        pointY = 0;
+        scale = 1; pointX = 0; pointY = 0;
         updateTransform();
         activateHandTool();
     };
@@ -407,7 +408,6 @@
         const containerHeight = rect.height;
         const imgWidth = canvas.width;
         const imgHeight = canvas.height;
-        
         const containerRatio = containerWidth / containerHeight;
         const imgRatio = imgWidth / imgHeight;
         
@@ -463,13 +463,11 @@
         handTool.classList.remove('active');
         if (!document.querySelector('.color-dot.active')) {
             const redDot = document.querySelector('.color-dot[data-color="red"]');
-            if (redDot) {
-                redDot.classList.add('active');
-                currentColor = 'red';
-            }
+            if (redDot) { redDot.classList.add('active'); currentColor = 'red'; }
         }
     }
 
+    // UI 綁定維持原生 click，不受畫布阻擋影響
     handTool.onclick = activateHandTool;
     pencilTool.onclick = activatePencilTool;
 
@@ -482,41 +480,41 @@
         };
     });
 
-    undoBtn.onclick = () => {
-        if(paths.length > 0) {
-            paths.pop();
-            redrawCanvas();
+    undoBtn.onclick = () => { if(paths.length > 0) { paths.pop(); redrawCanvas(); } };
+    clearBtn.onclick = () => { paths = []; redrawCanvas(); };
+
+    // --- 核心修正：觸控事件完全分離 ---
+    
+    // 1. 拍照前的相機縮放，只綁在 Video 上
+    video.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2 && videoTrack) {
+            initialCameraZoomDistance = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            initialCameraZoom = currentZoom;
         }
-    };
+    }, {passive: false});
 
-    clearBtn.onclick = () => {
-        paths = [];
-        redrawCanvas();
-    };
-
-    const container = document.getElementById('camera-container');
-
-    container.addEventListener('touchstart', (e) => {
-        // 核心修正：遇到工具列按鈕時放行，不阻擋點擊事件
-        if (e.target.closest('#brush-controls')) {
-            return;
-        }
-
-        if (snapBtn.style.display === 'none') {
-            e.preventDefault(); 
-        }
-
-        if (snapBtn.style.display !== 'none') {
-            if (e.touches.length === 2 && videoTrack) {
-                initialCameraZoomDistance = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-                initialCameraZoom = currentZoom;
+    video.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && videoTrack && initialCameraZoomDistance > 0) {
+            e.preventDefault();
+            const currentDistance = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            let newZoom = initialCameraZoom * (currentDistance / initialCameraZoomDistance);
+            newZoom = Math.max(minZoom, Math.min(newZoom, maxZoom));
+            if (newZoom !== currentZoom) {
+                currentZoom = newZoom;
+                videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {});
             }
-            return;
         }
+    }, {passive: false});
 
+    // 2. 拍照後的畫布操作，只綁在 Wrapper 上 (工具列點擊將完美穿透)
+    wrapper.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // 只在此區域阻擋 iOS 預設滑動
         if (e.touches.length === 2 && !isDrawingMode) {
             initialDistance = Math.hypot(
                 e.touches[0].clientX - e.touches[1].clientX,
@@ -536,46 +534,17 @@
         }
     }, {passive: false});
 
-    container.addEventListener('touchmove', (e) => {
-        // 核心修正：遇到工具列按鈕時放行
-        if (e.target.closest('#brush-controls')) {
-            return;
-        }
-        
-        e.preventDefault(); 
-        
-        if (snapBtn.style.display !== 'none') {
-            if (e.touches.length === 2 && videoTrack && initialCameraZoomDistance > 0) {
-                const currentDistance = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-                const zoomScale = currentDistance / initialCameraZoomDistance;
-                let newZoom = initialCameraZoom * zoomScale;
-                newZoom = Math.max(minZoom, Math.min(newZoom, maxZoom));
-                
-                if (newZoom !== currentZoom) {
-                    currentZoom = newZoom;
-                    videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {});
-                }
-            }
-            return;
-        }
-        
+    wrapper.addEventListener('touchmove', (e) => {
+        e.preventDefault();
         if (e.touches.length === 2 && !isDrawingMode) {
             const currentDistance = Math.hypot(
                 e.touches[0].clientX - e.touches[1].clientX,
                 e.touches[0].clientY - e.touches[1].clientY
             );
-            
             if (initialDistance > 0) {
                 const newScale = initialScale * (currentDistance / initialDistance);
                 scale = Math.min(Math.max(1, newScale), 5);
-                
-                if (scale === 1) {
-                    pointX = 0;
-                    pointY = 0;
-                }
+                if (scale === 1) { pointX = 0; pointY = 0; }
                 updateTransform();
             }
         } else if (e.touches.length === 1) {
@@ -596,23 +565,14 @@
         }
     }, {passive: false});
 
-    container.addEventListener('touchend', (e) => {
-        if (e.touches.length < 2) {
-            initialDistance = -1;
-            initialCameraZoomDistance = -1;
-        }
-        if (e.touches.length === 0) {
-            isDrawing = false;
-            panning = false;
-        }
+    wrapper.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) { initialDistance = -1; }
+        if (e.touches.length === 0) { isDrawing = false; panning = false; }
     });
 
     saveBtn.onclick = () => {
-        scale = 1;
-        pointX = 0;
-        pointY = 0;
-        updateTransform();
-        redrawCanvas(); 
+        scale = 1; pointX = 0; pointY = 0;
+        updateTransform(); redrawCanvas(); 
         
         const fontSize = Math.max(32, Math.floor(canvas.width / 20));
         ctx.font = `bold ${fontSize}px sans-serif`;
@@ -632,8 +592,7 @@
                 let testLine = currentLine + chars[i];
                 let metrics = ctx.measureText(testLine);
                 if (metrics.width > maxWidth && i > 0) {
-                    linesToDraw.push(currentLine);
-                    currentLine = chars[i];
+                    linesToDraw.push(currentLine); currentLine = chars[i];
                 } else {
                     currentLine = testLine;
                 }
@@ -652,7 +611,6 @@
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.fillRect(x, y, rectWidth, rectHeight);
-        
         ctx.fillStyle = 'white';
         linesToDraw.forEach((text, index) => {
             ctx.fillText(text, x + padding, y + padding + (index * lineHeight) + (fontSize * 0.8));
@@ -664,21 +622,13 @@
 
             if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 try {
-                    await navigator.share({
-                        files: [file],
-                        title: 'Bj相機',
-                        text: '分享照片'
-                    });
+                    await navigator.share({ files: [file], title: 'Bj相機', text: '分享照片' });
                     resetBtn.click();
-                } catch (error) {
-                    console.log('分享取消或錯誤', error);
-                }
+                } catch (error) { console.log('分享取消', error); }
             } else {
                 const link = document.createElement('a');
-                link.download = fileName;
-                link.href = URL.createObjectURL(blob);
-                link.click();
-                resetBtn.click();
+                link.download = fileName; link.href = URL.createObjectURL(blob);
+                link.click(); resetBtn.click();
             }
         }, 'image/jpeg', 0.95);
     };
@@ -686,25 +636,16 @@
     resetBtn.onclick = () => {
         video.style.display = 'block';
         wrapper.style.display = 'none';
-        brushControls.style.display = 'none';
+        document.getElementById('brush-controls').style.display = 'none';
         preview.style.display = 'block';
-        
         snapBtn.style.display = 'block';
         saveBtn.style.display = 'none';
         resetBtn.style.display = 'none';
-        
-        baseImage = null;
-        paths = [];
-        scale = 1;
-        pointX = 0;
-        pointY = 0;
-        updateTransform();
-        updatePreview();
+        baseImage = null; paths = []; scale = 1; pointX = 0; pointY = 0;
+        updateTransform(); updatePreview();
     };
 
-    initCamera();
-    fetchLocation();
-    updatePreview();
+    initCamera(); fetchLocation(); updatePreview();
 </script>
 
 </body>
