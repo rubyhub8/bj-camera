@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=no">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Bj相機">
+    
+    <title>Bj相機</title>
+    <style>
+        :root {
+            --bg-color: #f1f8e9;
+            --panel-color: #c5e1a5;
+            --primary-color: #558b2f;
+            --dark-green: #1b5e20;
+            --danger-color: #d32f2f;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none; 
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+        #camera-container {
+            position: relative;
+            flex: 1;
+            background-color: #000;
+            overflow: hidden; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        video {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            z-index: 1;
+        }
+        #canvas-wrapper {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: none;
+            z-index: 2;
+            justify-content: center;
+            align-items: center;
+            transform-origin: center center;
+            will-change: transform;
+        }
+        canvas {
+            object-fit: contain;
+            width: 100%;
+            height: 100%;
+        }
+        #watermark-preview {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 1rem;
+            line-height: 1.5;
+            pointer-events: none;
+            z-index: 10;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+        #brush-controls {
+            display: none;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.95);
+            padding: 10px 15px;
+            border-radius: 30px;
+            position: absolute;
+            top: 15px;
+            z-index: 110;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            flex-wrap: wrap;
+        }
+        .tool-icon {
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tool-icon.active {
+            border-color: #000;
+            background-color: #e0e0e0;
+        }
+        .color-dot {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid #ccc;
+            box-sizing: border-box;
+            transition: transform 0.2s;
+        }
+        .color-dot.active {
+            border-color: #000;
+            transform: scale(1.15);
+            border-width: 3px;
+        }
+        .tool-btn {
+            padding: 6px 12px;
+            font-size: 0.9rem;
+            border: none;
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #controls {
+            background-color: var(--panel-color);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 100;
+        }
+        .input-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--primary-color);
+            font-size: 1rem;
+            box-sizing: border-box;
+            background-color: white;
+            -webkit-appearance: none;
+        }
+        .action-btn {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            white-space: nowrap;
+        }
+        .action-btn:active {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+
+<div id="header">Bj相機</div>
+
+<div id="camera-container">
+    <video id="video" autoplay playsinline></video>
+    
+    <div id="canvas-wrapper">
+        <canvas id="canvas"></canvas>
+    </div>
+    
+    <div id="brush-controls">
+        <div id="hand-tool" class="tool-icon active">✋</div>
+        <div id="pencil-tool" class="tool-icon">✏️</div>
+        
+        <div class="color-dot" style="background: red;" data-color="red"></div>
+        <div class="color-dot" style="background: #ffeb3b;" data-color="#ffeb3b"></div>
+        <div class="color-dot" style="background: #2196f3;" data-color="#2196f3"></div>
+        <div class="color-dot" style="background: #4caf50;" data-color="#4caf50"></div>
+        
+        <button class="tool-btn" id="undo-btn" style="background-color: #f57c00;">回復</button>
+        <button class="tool-btn" id="clear-btn" style="background-color: #555;">全清</button>
+    </div>
+    
+    <div id="watermark-preview"></div>
+</div>
+
+<div id="controls">
+    <div class="input-group">
+        <input type="text" id="address-input" placeholder="地址定位中...">
+        <button id="gps-btn" class="action-btn" style="padding: 12px 15px; font-size: 1rem;">📍重整</button>
+    </div>
+    <div class="input-group">
+        <input type="text" id="desc-input" placeholder="輸入說明 (選填，可多行浮水印)">
+    </div>
+    
+    <div class="input-group" style="margin-top: 5px;">
+        <button id="snap-btn" class="action-btn" style="flex: 1; background-color: var(--dark-green); padding: 16px;">拍照</button>
+        <button id="save-btn" class="action-btn" style="flex: 1; display: none; padding: 16px; background-color: var(--primary-color);">分享至 LINE</button>
+        <button id="reset-btn" class="action-btn" style="display: none; background-color: var(--danger-color); padding: 16px;">重來</button>
+    </div>
+</div>
+
+<script>
+    // --- 系統編號與日誌 ---
+    const APP_VERSION = "V1.2_20260624";
+    console.log("Bj相機核心啟動。當前版本:", APP_VERSION);
+
+    // --- 綠底白字 Bj 主畫面圖示動態建構 ---
+    (function injectAppIcon() {
+        const iconCanvas = document.createElement('canvas');
+        iconCanvas.width = 180;
+        iconCanvas.height = 180;
+        const ictx = iconCanvas.getContext('2d');
+        ictx.fillStyle = '#558b2f'; 
+        ictx.fillRect(0, 0, 180, 180);
+        ictx.fillStyle = '#ffffff'; 
+        ictx.font = 'bold 95px -apple-system, BlinkMacSystemFont, sans-serif';
+        ictx.textAlign = 'center';
+        ictx.textBaseline = 'middle';
+        ictx.fillText('Bj', 90, 93);
+        
+        const link = document.createElement('link');
+        link.rel = 'apple-touch-icon';
+        link.href = iconCanvas.toDataURL('image/png');
+        document.head.appendChild(link);
+    })();
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const wrapper = document.getElementById('canvas-wrapper');
+    const ctx = canvas.getContext('2d');
+    const preview = document.getElementById('watermark-preview');
+    
+    const addressInput = document.getElementById('address-input');
+    const descInput = document.getElementById('desc-input');
+    
+    const gpsBtn = document.getElementById('gps-btn');
+    const snapBtn = document.getElementById('snap-btn');
+    const saveBtn = document.getElementById('save-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const brushControls = document.getElementById('brush-controls');
+
+    const handTool = document.getElementById('hand-tool');
+    const pencilTool = document.getElementById('pencil-tool');
+    const undoBtn = document.getElementById('undo-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    
+    let baseImage = null; 
+    let paths = []; 
+    let currentPath = [];
+    let isDrawing = false;
+    let currentColor = 'red';
+    let captureTime = "";
+    
+    let isDrawingMode = false;
+    let scale = 1;
+    let panning = false;
+    let pointX = 0;
+    let pointY = 0;
+    let start = { x: 0, y: 0 };
+    let initialDistance = -1;
+    let initialScale = 1;
+
+    let videoTrack = null;
+    let currentZoom = 1;
+    let minZoom = 1;
+    let maxZoom = 1;
+    let initialCameraZoomDistance = -1;
+    let initialCameraZoom = 1;
+
+    // rAF 節流閥控制旗標
+    let transformTicking = false;
+
+    async function initCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+                audio: false
+            });
+            video.srcObject = stream;
+            
+            videoTrack = stream.getVideoTracks()[0];
+            setTimeout(() => {
+                if(videoTrack && videoTrack.getCapabilities) {
+                    const capabilities = videoTrack.getCapabilities();
+                    if(capabilities.zoom) {
+                        minZoom = capabilities.zoom.min || 1;
+                        maxZoom = capabilities.zoom.max || 5;
+                        currentZoom = minZoom;
+                    }
+                }
+            }, 500);
+        } catch (err) {
+            alert("相機開啟失敗，請確認已授予權限。");
+        }
+    }
+
+    function getTimeString() {
+        const d = new Date();
+        return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')} : ${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    async function fetchLocation() {
+        addressInput.placeholder = "定位中...";
+        if (!navigator.geolocation) {
+            addressInput.value = "不支援定位，請手動輸入";
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(async pos => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                const data = await res.json();
+                if(data.display_name) {
+                    // 高級過濾：徹底剔除村、里、國家、郵遞區號
+                    let parts = data.display_name.split(',').map(p => p.trim());
+                    let filteredParts = parts.filter(p => !/(村|里)$/.test(p) && p !== '臺灣' && !/^\d+$/.test(p));
+                    addressInput.value = filteredParts.reverse().join('').replace(/\s/g, '');
+                } else {
+                    addressInput.value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+                }
+            } catch (e) {
+                addressInput.value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+            }
+        }, err => {
+            addressInput.placeholder = "定位失敗，請手動輸入地址";
+        }, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    gpsBtn.onclick = () => { addressInput.value = ""; fetchLocation(); };
+
+    function updatePreview() {
+        if(snapBtn.style.display === 'none') return; 
+        
+        let html = `時間: ${getTimeString()}<br>`;
+        if (addressInput.value.trim()) html += `地址: ${addressInput.value.trim()}<br>`;
+        if (descInput.value.trim()) html += `說明: ${descInput.value.trim()}`;
+        
+        preview.innerHTML = html.replace(/<br>$/, '');
+    }
+    
+    addressInput.oninput = updatePreview;
+    descInput.oninput = updatePreview;
+    setInterval(updatePreview, 1000);
+
+    snapBtn.onclick = () => {
+        captureTime = getTimeString();
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        baseImage = new Image();
+        baseImage.src = canvas.toDataURL('image/jpeg', 0.95);
+        paths = [];
+
+        video.style.display = 'none';
+        wrapper.style.display = 'flex';
+        brushControls.style.display = 'flex';
+        
+        snapBtn.style.display = 'none';
+        saveBtn.style.display = 'flex';
+        resetBtn.style.display = 'flex';
+        preview.style.display = 'none';
+        
+        scale = 1;
+        pointX = 0;
+        pointY = 0;
+        updateTransform();
+        activateHandTool();
+    };
+
+    // 優化：導入 rAF 與 translate3d 硬體加速，徹底解決 iOS 掉幀卡死問題
+    function updateTransform() {
+        if (!transformTicking) {
+            window.requestAnimationFrame(() => {
+                wrapper.style.transform = `translate3d(${pointX}px, ${pointY}px, 0) scale(${scale})`;
+                transformTicking = false;
+            });
+            transformTicking = true;
+        }
+    }
+
+    function getNormalizedCanvasPos(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        let x = clientX - rect.left;
+        let y = clientY - rect.top;
+        
+        const containerWidth = rect.width;
+        const containerHeight = rect.height;
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        
+        const containerRatio = containerWidth / containerHeight;
+        const imgRatio = imgWidth / imgHeight;
+        
+        let actualDisplayedWidth, actualDisplayedHeight, offsetX = 0, offsetY = 0;
+        
+        if (imgRatio > containerRatio) {
+            actualDisplayedWidth = containerWidth;
+            actualDisplayedHeight = containerWidth / imgRatio;
+            offsetY = (containerHeight - actualDisplayedHeight) / 2;
+        } else {
+            actualDisplayedHeight = containerHeight;
+            actualDisplayedWidth = containerHeight * imgRatio;
+            offsetX = (containerWidth - actualDisplayedWidth) / 2;
+        }
+        
+        const finalX = (x - offsetX) * (imgWidth / actualDisplayedWidth);
+        const finalY = (y - offsetY) * (imgHeight / actualDisplayedHeight);
+        
+        return { x: finalX, y: finalY };
+    }
+
+    function redrawCanvas() {
+        if(!baseImage) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+        
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(6, canvas.width / 120);
+        
+        paths.forEach(p => {
+            if(p.points.length < 2) return;
+            ctx.beginPath();
+            ctx.strokeStyle = p.color;
+            ctx.moveTo(p.points[0].x, p.points[0].y);
+            for(let i=1; i<p.points.length; i++) {
+                ctx.lineTo(p.points[i].x, p.points[i].y);
+            }
+            ctx.stroke();
+        });
+    }
+
+    function activateHandTool() {
+        isDrawingMode = false;
+        handTool.classList.add('active');
+        pencilTool.classList.remove('active');
+        document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+    }
+
+    function activatePencilTool() {
+        isDrawingMode = true;
+        pencilTool.classList.add('active');
+        handTool.classList.remove('active');
+        if (!document.querySelector('.color-dot.active')) {
+            const redDot = document.querySelector('.color-dot[data-color="red"]');
+            if (redDot) {
+                redDot.classList.add('active');
+                currentColor = 'red';
+            }
+        }
+    }
+
+    handTool.onclick = activateHandTool;
+    pencilTool.onclick = activatePencilTool;
+
+    document.querySelectorAll('.color-dot').forEach(dot => {
+        dot.onclick = (e) => {
+            currentColor = e.target.getAttribute('data-color');
+            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+            e.target.classList.add('active');
+            activatePencilTool();
+        };
+    });
+
+    undoBtn.onclick = () => {
+        if(paths.length > 0) {
+            paths.pop();
+            redrawCanvas();
+        }
+    };
+
+    clearBtn.onclick = () => {
+        paths = [];
+        redrawCanvas();
+    };
+
+    const container = document.getElementById('camera-container');
+
+    container.addEventListener('touchstart', (e) => {
+        if (snapBtn.style.display === 'none') {
+            e.preventDefault(); // 完全阻斷 iOS 瀏覽器預設手勢衝突
+        }
+
+        if (snapBtn.style.display !== 'none') {
+            if (e.touches.length === 2 && videoTrack) {
+                initialCameraZoomDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                initialCameraZoom = currentZoom;
+            }
+            return;
+        }
+
+        if (e.touches.length === 2 && !isDrawingMode) {
+            initialDistance = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            initialScale = scale;
+        } else if (e.touches.length === 1) {
+            if (isDrawingMode) {
+                isDrawing = true;
+                const pos = getNormalizedCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+                currentPath = { color: currentColor, points: [pos] };
+                paths.push(currentPath);
+            } else {
+                panning = true;
+                start = { x: e.touches[0].clientX - pointX, y: e.touches[0].clientY - pointY };
+            }
+        }
+    }, {passive: false});
+
+    container.addEventListener('touchmove', (e) => {
+        e.preventDefault(); 
+        
+        if (snapBtn.style.display !== 'none') {
+            if (e.touches.length === 2 && videoTrack && initialCameraZoomDistance > 0) {
+                const currentDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                const zoomScale = currentDistance / initialCameraZoomDistance;
+                let newZoom = initialCameraZoom * zoomScale;
+                newZoom = Math.max(minZoom, Math.min(newZoom, maxZoom));
+                
+                if (newZoom !== currentZoom) {
+                    currentZoom = newZoom;
+                    videoTrack.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {});
+                }
+            }
+            return;
+        }
+        
+        if (e.touches.length === 2 && !isDrawingMode) {
+            const currentDistance = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            
+            if (initialDistance > 0) {
+                const newScale = initialScale * (currentDistance / initialDistance);
+                scale = Math.min(Math.max(1, newScale), 5);
+                
+                if (scale === 1) {
+                    pointX = 0;
+                    pointY = 0;
+                }
+                updateTransform();
+            }
+        } else if (e.touches.length === 1) {
+            if (isDrawing) {
+                const pos = getNormalizedCanvasPos(e.touches[0].clientX, e.touches[0].clientY);
+                const lastPos = currentPath.points[currentPath.points.length - 1];
+                if (lastPos && (Math.abs(pos.x - lastPos.x) > 1 || Math.abs(pos.y - lastPos.y) > 1)) {
+                    currentPath.points.push(pos);
+                    redrawCanvas();
+                }
+            } else if (panning) {
+                if (scale > 1) {
+                    pointX = e.touches[0].clientX - start.x;
+                    pointY = e.touches[0].clientY - start.y;
+                    updateTransform();
+                }
+            }
+        }
+    }, {passive: false});
+
+    container.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+            initialDistance = -1;
+            initialCameraZoomDistance = -1;
+        }
+        if (e.touches.length === 0) {
+            isDrawing = false;
+            panning = false;
+        }
+    });
+
+    saveBtn.onclick = () => {
+        scale = 1;
+        pointX = 0;
+        pointY = 0;
+        updateTransform();
+        redrawCanvas(); 
+        
+        const fontSize = Math.max(32, Math.floor(canvas.width / 20));
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const lineHeight = fontSize * 1.5;
+        const padding = fontSize * 0.8;
+        const x = 30; 
+        
+        let linesToDraw = [`時間: ${captureTime}`];
+        if (addressInput.value.trim()) linesToDraw.push(`地址: ${addressInput.value.trim()}`);
+        
+        let maxWidth = canvas.width - (x * 2) - (padding * 2); 
+        let descText = descInput.value.trim();
+        if (descText) {
+            let currentLine = "";
+            let chars = (`說明: ${descText}`).split('');
+            for(let i=0; i<chars.length; i++) {
+                let testLine = currentLine + chars[i];
+                let metrics = ctx.measureText(testLine);
+                if (metrics.width > maxWidth && i > 0) {
+                    linesToDraw.push(currentLine);
+                    currentLine = chars[i];
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            linesToDraw.push(currentLine);
+        }
+
+        const rectHeight = (linesToDraw.length * lineHeight) + padding;
+        const y = canvas.height - rectHeight - 30;
+        
+        let maxTextWidth = 0;
+        linesToDraw.forEach(text => {
+            maxTextWidth = Math.max(maxTextWidth, ctx.measureText(text).width);
+        });
+        const rectWidth = maxTextWidth + (padding * 2);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(x, y, rectWidth, rectHeight);
+        
+        ctx.fillStyle = 'white';
+        linesToDraw.forEach((text, index) => {
+            ctx.fillText(text, x + padding, y + padding + (index * lineHeight) + (fontSize * 0.8));
+        });
+
+        canvas.toBlob(async (blob) => {
+            const fileName = `Bj_${Date.now()}.jpg`;
+            const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share({
+                        files: [file],
+                        title: 'Bj相機',
+                        text: '分享照片'
+                    });
+                    resetBtn.click();
+                } catch (error) {
+                    console.log('分享取消或錯誤', error);
+                }
+            } else {
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = URL.createObjectURL(blob);
+                link.click();
+                resetBtn.click();
+            }
+        }, 'image/jpeg', 0.95);
+    };
+
+    resetBtn.onclick = () => {
+        video.style.display = 'block';
+        wrapper.style.display = 'none';
+        brushControls.style.display = 'none';
+        preview.style.display = 'block';
+        
+        snapBtn.style.display = 'block';
+        saveBtn.style.display = 'none';
+        resetBtn.style.display = 'none';
+        
+        baseImage = null;
+        paths = [];
+        scale = 1;
+        pointX = 0;
+        pointY = 0;
+        updateTransform();
+        updatePreview();
+    };
+
+    initCamera();
+    fetchLocation();
+    updatePreview();
+</script>
+
+</body>
+</html>
