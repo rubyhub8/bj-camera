@@ -1,5 +1,26 @@
-function onResults(results) {
-      // 1. 繪製清晰的原圖（作為底層，保留頭髮與背景細節）
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>美肌相機 - 精準磨皮</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <style>
+    body { background: #222; display: flex; justify-content: center; margin-top: 50px; }
+    canvas { transform: scaleX(-1); border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <video id="input_video" playsinline style="display: none;"></video>
+  <canvas id="output_canvas" width="640" height="480"></canvas>
+
+  <script>
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    function onResults(results) {
+      // 1. 畫出清晰的原圖
       canvasCtx.globalCompositeOperation = 'source-over';
       canvasCtx.filter = 'none';
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
@@ -7,23 +28,45 @@ function onResults(results) {
       if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // 2. 建立遮罩範圍（暫以鼻樑為中心，建立橢圓形皮膚遮罩）
+        // 2. 建立遮罩範圍（以鼻樑為中心的橢圓形）
         canvasCtx.save();
         canvasCtx.beginPath();
         
-        // 取得鼻樑點位 (index 1) 的真實像素座標
         const nose = landmarks[1];
         const x = nose.x * canvasElement.width;
         const y = nose.y * canvasElement.height;
         
-        // 畫一個覆蓋臉頰的橢圓
         canvasCtx.ellipse(x, y, 100, 140, 0, 0, 2 * Math.PI);
-        canvasCtx.clip(); // 關鍵：接下來的繪圖只會出現在這個橢圓內
+        canvasCtx.clip();
 
-        // 3. 在遮罩範圍內，疊加「模糊與提亮」的柔焦圖層
+        // 3. 疊加柔焦與提亮效果
         canvasCtx.filter = 'blur(6px) brightness(1.15)';
         canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
         
-        canvasCtx.restore(); // 解除遮罩，以免影響下一幀
+        canvasCtx.restore();
       }
     }
+
+    const faceMesh = new FaceMesh({locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }});
+    
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    faceMesh.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  </script>
+</body>
+</html>
